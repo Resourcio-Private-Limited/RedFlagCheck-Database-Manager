@@ -248,7 +248,7 @@ app.delete("/api/users/:id", async (req, res) => {
             await Promise.all(user.posts.map(post => deleteFromS3(post.photoUrl)));
         }
 
-        await prisma.user.delete({ where: { id: userIdInt } });
+        await prisma.user.delete({ where: { id } });
         res.json({ message: "User and all related S3 content deleted." });
     } catch (err) {
         console.error(err);
