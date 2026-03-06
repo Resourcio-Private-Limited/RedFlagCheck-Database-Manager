@@ -11,6 +11,7 @@ datasource db {
 
 model User {
   id          Int      @id @default(autoincrement())
+  uid         String   @unique @default(uuid())
   name        String
   nationality String
   job         String

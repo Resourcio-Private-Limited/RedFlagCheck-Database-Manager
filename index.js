@@ -135,7 +135,7 @@ app.get("/", (req, res) => {
 
 app.get("/api/s3/presigned-url", async (req, res) => {
     try {
-        const { filename, contentType, folder, userId } = req.query;
+        const { filename, contentType, folder, uid } = req.query;
 
         if (!filename || !contentType) {
             return res.status(400).json({ error: "filename and contentType are required." });
@@ -147,8 +147,8 @@ app.get("/api/s3/presigned-url", async (req, res) => {
         }
 
         const dir = folder === "posts" ? "posts" : "profiles";
-        // Optimized path structure: users/{userId}/{posts|profiles}/{timestamp}-{filename}
-        const userPath = userId ? `users/${userId}/` : "";
+        // Optimized path structure: users/{uid}/{posts|profiles}/{timestamp}-{filename}
+        const userPath = uid ? `users/${uid}/` : "";
         const key = `${userPath}${dir}/${Date.now()}-${filename}`;
 
         const command = new PutObjectCommand({
@@ -173,7 +173,7 @@ app.get("/api/s3/presigned-url", async (req, res) => {
 
 app.post("/api/users", async (req, res) => {
     try {
-        const { name, nationality, job, location, age, photos } = req.body;
+        const { uid, name, nationality, job, location, age, photos } = req.body;
         if (!name || !nationality || !job || !location || !age) {
             return res.status(400).json({ error: "All fields are required." });
         }
@@ -184,7 +184,7 @@ app.post("/api/users", async (req, res) => {
             return res.status(400).json({ error: "Maximum 5 photos allowed." });
         }
         const user = await prisma.user.create({
-            data: { name, nationality, job, location, age: parseInt(age), photos },
+            data: { uid, name, nationality, job, location, age: parseInt(age), photos },
         });
         res.status(201).json({ message: "User created successfully!", user });
     } catch (err) {
@@ -222,18 +222,22 @@ app.get("/api/users/:id", async (req, res) => {
 
 app.delete("/api/users/:id", async (req, res) => {
     try {
-        const id = req.params.id; // Keep as string for prefix
-        const userIdInt = parseInt(id);
+        const id = parseInt(req.params.id);
         const user = await prisma.user.findUnique({
-            where: { id: userIdInt },
+            where: { id },
             include: { posts: true }
         });
         if (!user) return res.status(404).json({ error: "User not found." });
 
-        // 1. Bulk delete user-specific folder (New Structure)
-        await deletePrefixFromS3(`users/${id}/`);
+        // 1. Bulk delete user-specific folder using UID (Stable)
+        if (user.uid) {
+            await deletePrefixFromS3(`users/${user.uid}/`);
+        } else {
+            // Fallback to integer ID if UID is missing (legacy)
+            await deletePrefixFromS3(`users/${req.params.id}/`);
+        }
 
-        // 2. Individual Cleanup (Backward Compatibility or if files were in "new-" folders)
+        // 2. Individual Cleanup (Backward Compatibility or if files were outside UID folder)
         // Cleanup S3 photos for the user
         if (user.photos && user.photos.length > 0) {
             await Promise.all(user.photos.map(photo => deleteFromS3(photo)));
