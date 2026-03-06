@@ -1343,11 +1343,11 @@
     function openLightbox(src) { lbImg.src = src; lightbox.classList.add('open'); }
 
     // --- S3 Upload Helper ---
-    async function uploadToS3(file, folder, progressId, userId) {
+    async function uploadToS3(file, folder, progressId, uid) {
       const progressEl = document.getElementById(progressId);
       try {
-        const userIdParam = userId ? `&userId=${userId}` : '';
-        const res = await fetch(`${API}/api/s3/presigned-url?filename=${encodeURIComponent(file.name)}&contentType=${encodeURIComponent(file.type)}&folder=${folder}${userIdParam}`);
+        const uidParam = uid ? `&uid=${uid}` : '';
+        const res = await fetch(`${API}/api/s3/presigned-url?filename=${encodeURIComponent(file.name)}&contentType=${encodeURIComponent(file.type)}&folder=${folder}${uidParam}`);
         const { presignedUrl, publicUrl } = await res.json();
         if (!presignedUrl) throw new Error('Failed to get upload URL');
 
