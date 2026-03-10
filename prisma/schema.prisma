@@ -35,8 +35,9 @@ model Post {
   jobProfile      String
   currentLivingIn String
   age             Int
+  title           String?
   photos          String[]
-  content         String   @db.Text
+  content         String?  @db.Text
   userId          Int
   user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   createdAt       DateTime @default(now())

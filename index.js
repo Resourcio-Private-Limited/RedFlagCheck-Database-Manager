@@ -322,11 +322,14 @@ app.put("/api/users/:id", async (req, res) => {
 app.post("/api/posts", async (req, res) => {
     console.log("Incoming Post Request:", req.body);
     try {
-        const { type, name, nationality, jobProfile, currentLivingIn, age, photos, content } = req.body;
+        const { type, title, name, nationality, jobProfile, currentLivingIn, age, photos, content } = req.body;
         const userId = req.session.userId;
 
-        if (!type || !name || !photos || photos.length === 0 || !content || !userId || !age) {
-            return res.status(400).json({ error: "Missing required fields (Type, Name, Photos, Content, Age)." });
+        if (!type || !title || title.trim() === '' || !name || !photos || photos.length === 0 || !userId || !age) {
+            return res.status(400).json({ error: "Missing required fields (Type, Title, Name, Photos, Age)." });
+        }
+        if (type === 'REDFLAG' && (!content || content.trim() === '')) {
+            return res.status(400).json({ error: "Content is required for Red Flag posts." });
         }
 
         const parsedAge = parseInt(age);
@@ -337,13 +340,14 @@ app.post("/api/posts", async (req, res) => {
         const post = await prisma.post.create({
             data: {
                 type,
+                title,
                 name,
                 nationality: nationality || "N/A",
                 jobProfile: jobProfile || "N/A",
                 currentLivingIn: currentLivingIn || "N/A",
                 age: parsedAge,
                 photos,
-                content,
+                content: type === 'REDFLAG' ? content : null,
                 userId
             },
         });
@@ -388,7 +392,7 @@ app.delete("/api/posts/:id", async (req, res) => {
 app.put("/api/posts/:id", async (req, res) => {
     try {
         const id = parseInt(req.params.id);
-        const { type, name, nationality, jobProfile, currentLivingIn, age, photos, content } = req.body;
+        const { type, title, name, nationality, jobProfile, currentLivingIn, age, photos, content } = req.body;
 
         const existingPost = await prisma.post.findUnique({ where: { id } });
         if (!existingPost) return res.status(404).json({ error: "Post not found." });
@@ -403,13 +407,14 @@ app.put("/api/posts/:id", async (req, res) => {
             where: { id },
             data: {
                 type,
+                title,
                 name,
                 nationality,
                 jobProfile,
                 currentLivingIn,
                 age: parseInt(age),
                 photos,
-                content
+                content: type === 'REDFLAG' ? content : null
             },
         });
         res.json({ message: "Post updated!", post });

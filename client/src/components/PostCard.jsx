@@ -44,6 +44,9 @@ export function PostCard({ post, onDelete, onExpand, onEdit }) {
 
             {/* Main Info at Bottom */}
             <div className="absolute bottom-6 left-6 right-6 z-10">
+                {post.title && (
+                    <h2 className="text-2xl font-bold text-white mb-2 leading-tight">{post.title}</h2>
+                )}
                 <div className="flex items-baseline gap-2 mb-2">
                     <h3 className="text-3xl font-black text-white">{post.name}</h3>
                     <span className="text-xl text-white/60 font-medium">{post.age}</span>
@@ -58,14 +61,6 @@ export function PostCard({ post, onDelete, onExpand, onEdit }) {
                         <Briefcase size={14} className="text-white/40" />
                         {post.jobProfile}
                     </div>
-                </div>
-
-                {/* Content Snippet */}
-                <div className="flex items-center gap-3 py-3 border-t border-white/10">
-                    <div className="w-1.5 h-6 bg-yellow-500 rounded-full" />
-                    <p className="text-white/90 font-medium text-sm line-clamp-1 italic">
-                        {post.content}
-                    </p>
                 </div>
             </div>
 

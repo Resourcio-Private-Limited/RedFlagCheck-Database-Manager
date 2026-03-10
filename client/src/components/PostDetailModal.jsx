@@ -104,6 +104,9 @@ export function PostDetailModal({ post, isOpen, onClose, onDelete }) {
 
                         {/* Subject Profile */}
                         <div className="mb-10">
+                            {post.title && (
+                                <h1 className="text-3xl font-black text-white mb-4 leading-tight">{post.title}</h1>
+                            )}
                             <h2 className="text-4xl font-black text-white mb-2">{post.name}</h2>
                             <p className="text-xl text-white/60 mb-6 font-medium">Subject Identity • {post.age} Years Old</p>
 
@@ -114,15 +117,17 @@ export function PostDetailModal({ post, isOpen, onClose, onDelete }) {
                         </div>
 
                         {/* Verified intel */}
-                        <div className="flex-1">
-                            <div className="flex items-center gap-2 mb-4 text-xs font-black uppercase tracking-widest text-white/30">
-                                <div className="w-1.5 h-1.5 rounded-full bg-yellow-500" />
-                                Verified Intel Report
+                        {post.content && (
+                            <div className="flex-1">
+                                <div className="flex items-center gap-2 mb-4 text-xs font-black uppercase tracking-widest text-white/30">
+                                    <div className="w-1.5 h-1.5 rounded-full bg-yellow-500" />
+                                    Verified Intel Report
+                                </div>
+                                <div className="bg-white/5 border border-white/10 p-6 rounded-3xl text-lg leading-relaxed text-white/80 italic">
+                                    "{post.content}"
+                                </div>
                             </div>
-                            <div className="bg-white/5 border border-white/10 p-6 rounded-3xl text-lg leading-relaxed text-white/80 italic">
-                                "{post.content}"
-                            </div>
-                        </div>
+                        )}
 
                         {/* Footer / Actions */}
                         <div className="mt-10 pt-8 border-t border-white/5 flex items-center justify-between">
