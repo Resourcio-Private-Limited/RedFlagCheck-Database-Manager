@@ -10,24 +10,35 @@ datasource db {
 }
 
 model User {
-  id          Int      @id @default(autoincrement())
-  uid         String   @unique @default(uuid())
-  name        String
-  nationality String
-  job         String
-  location    String
-  age         Int
-  photos      String[]
-  createdAt   DateTime @default(now())
+  id           Int      @id @default(autoincrement())
+  uid          String   @unique @default(uuid())
+  fullname     String
+  email        String   @unique
+  username     String   @unique
+  password     String
+  profileImage String?
+  createdAt    DateTime @default(now())
 
   posts Post[]
 }
 
+enum PostType {
+  REDFLAG
+  TEA
+}
+
 model Post {
-  id        Int      @id @default(autoincrement())
-  remarks   String   @db.Text
-  photoUrl  String?
-  userId    Int
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  createdAt DateTime @default(now())
+  id              Int      @id @default(autoincrement())
+  type            PostType
+  name            String
+  nationality     String
+  jobProfile      String
+  currentLivingIn String
+  age             Int
+  title           String?
+  photos          String[]
+  content         String?  @db.Text
+  userId          Int
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt       DateTime @default(now())
 }

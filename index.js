@@ -6,6 +6,7 @@ const path = require("path");
 const { PrismaClient } = require("@prisma/client");
 const { S3Client, PutObjectCommand, DeleteObjectCommand, ListObjectsV2Command, DeleteObjectsCommand } = require("@aws-sdk/client-s3");
 const { getSignedUrl } = require("@aws-sdk/s3-request-presigner");
+const bcrypt = require("bcrypt");
 
 const app = express();
 
@@ -19,7 +20,10 @@ const s3Client = new S3Client({
 const prisma = new PrismaClient();
 const PORT = process.env.PORT || 3000;
 
-app.use(cors());
+app.use(cors({
+    origin: "http://localhost:5173",
+    credentials: true
+}));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(
@@ -31,7 +35,7 @@ app.use(
     })
 );
 
-app.use("/public", express.static(path.join(__dirname, "public")));
+// Pure API Backend - No static serving needed
 
 /**
  * Extracts the S3 Key from a URL (S3 or CloudFront)
@@ -99,39 +103,59 @@ async function deletePrefixFromS3(prefix) {
 
 function requireAuth(req, res, next) {
     if (req.session && req.session.authenticated) return next();
-    res.redirect("/login");
+    res.status(401).json({ error: "Session expired. Please login again." });
 }
 
-app.get("/login", (req, res) => {
-    if (req.session && req.session.authenticated) return res.redirect("/");
-    res.sendFile(path.join(__dirname, "public", "login.html"));
+// Legacy HTML routes removed
+
+app.post("/login", async (req, res) => {
+    const { email, password } = req.body;
+    try {
+        const user = await prisma.user.findUnique({ where: { email } });
+        // Handle AJAX login
+        if (!user) return res.status(401).json({ error: "Invalid credentials" });
+
+        const isValid = await bcrypt.compare(password, user.password);
+        if (!isValid) return res.status(401).json({ error: "Invalid credentials" });
+
+        req.session.authenticated = true;
+        req.session.userId = user.id;
+        req.session.userEmail = user.email;
+        res.json({ message: "Login successful", user: { email: user.email, id: user.id } });
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: "Internal server error" });
+    }
 });
 
-app.post("/login", (req, res) => {
-    const { username, password } = req.body;
-    if (
-        username === process.env.ADMIN_USER &&
-        password === process.env.ADMIN_PASS
-    ) {
-        req.session.authenticated = true;
-        return res.redirect("/");
+app.post("/register", async (req, res) => {
+    try {
+        const { fullname, username, email, password, profileImage } = req.body;
+        if (!fullname || !username || !email || !password) {
+            return res.status(400).json({ error: "All fields are required." });
+        }
+
+        const hashedPassword = await bcrypt.hash(password, 10);
+        const user = await prisma.user.create({
+            data: { fullname, username, email, password: hashedPassword, profileImage },
+        });
+
+        res.status(201).json({ message: "User registered successfully!", userId: user.id });
+    } catch (err) {
+        if (err.code === "P2002") {
+            return res.status(400).json({ error: "Email or Username already exists." });
+        }
+        console.error(err);
+        res.status(500).json({ error: "Failed to register user." });
     }
-    res.redirect("/login?error=1");
 });
 
 app.get("/logout", (req, res) => {
-    req.session.destroy(() => res.redirect("/login"));
+    req.session.destroy(() => res.json({ message: "Logged out successfully" }));
 });
 
-// Protect all routes below this middleware
+// Protected API Routes
 app.use(requireAuth);
-
-// Dashboard static files
-app.use(express.static(path.join(__dirname, "public")));
-
-app.get("/", (req, res) => {
-    res.sendFile(path.join(__dirname, "public", "index.html"));
-});
 
 app.get("/api/s3/presigned-url", async (req, res) => {
     try {
@@ -172,19 +196,12 @@ app.get("/api/s3/presigned-url", async (req, res) => {
 });
 
 app.post("/api/users", async (req, res) => {
+    // This endpoint might be redundant with /register but kept for admin use if needed
     try {
-        const { uid, name, nationality, job, location, age, photos } = req.body;
-        if (!name || !nationality || !job || !location || !age) {
-            return res.status(400).json({ error: "All fields are required." });
-        }
-        if (!photos || !Array.isArray(photos) || photos.length < 1) {
-            return res.status(400).json({ error: "At least 1 photo URL is required." });
-        }
-        if (photos.length > 5) {
-            return res.status(400).json({ error: "Maximum 5 photos allowed." });
-        }
+        const { fullname, email, password, profileImage } = req.body;
+        const hashedPassword = await bcrypt.hash(password, 10);
         const user = await prisma.user.create({
-            data: { uid, name, nationality, job, location, age: parseInt(age), photos },
+            data: { fullname, email, password: hashedPassword, profileImage },
         });
         res.status(201).json({ message: "User created successfully!", user });
     } catch (err) {
@@ -203,6 +220,19 @@ app.get("/api/users", async (req, res) => {
     } catch (err) {
         console.error(err);
         res.status(500).json({ error: "Failed to fetch users." });
+    }
+});
+
+app.get("/api/users/me", requireAuth, async (req, res) => {
+    try {
+        const user = await prisma.user.findUnique({
+            where: { id: req.session.userId },
+            select: { id: true, email: true, fullname: true, username: true, profileImage: true }
+        });
+        if (!user) return res.status(404).json({ error: "User not found" });
+        res.json(user);
+    } catch (err) {
+        res.status(500).json({ error: "Server error" });
     }
 });
 
@@ -245,7 +275,11 @@ app.delete("/api/users/:id", async (req, res) => {
 
         // Cleanup S3 photos for all user's posts
         if (user.posts && user.posts.length > 0) {
-            await Promise.all(user.posts.map(post => deleteFromS3(post.photoUrl)));
+            for (const post of user.posts) {
+                if (post.photos && post.photos.length > 0) {
+                    await Promise.all(post.photos.map(photo => deleteFromS3(photo)));
+                }
+            }
         }
 
         await prisma.user.delete({ where: { id } });
@@ -259,28 +293,25 @@ app.delete("/api/users/:id", async (req, res) => {
 app.put("/api/users/:id", async (req, res) => {
     try {
         const id = parseInt(req.params.id);
-        const { name, nationality, job, location, age, photos } = req.body;
-        if (!name || !nationality || !job || !location || !age) {
-            return res.status(400).json({ error: "All fields are required." });
-        }
-        if (!photos || !Array.isArray(photos) || photos.length < 1) {
-            return res.status(400).json({ error: "At least 1 photo is required." });
+        const { fullname, email, password, profileImage } = req.body;
+
+        const data = { fullname, email, profileImage };
+        if (password) {
+            data.password = await bcrypt.hash(password, 10);
         }
 
         const existingUser = await prisma.user.findUnique({ where: { id } });
         if (!existingUser) return res.status(404).json({ error: "User not found." });
 
-        // Identify photos that were removed
-        const removedPhotos = existingUser.photos.filter(p => !photos.includes(p));
-        if (removedPhotos.length > 0) {
-            await Promise.all(removedPhotos.map(p => deleteFromS3(p)));
+        if (existingUser.profileImage && existingUser.profileImage !== profileImage) {
+            await deleteFromS3(existingUser.profileImage);
         }
 
         const user = await prisma.user.update({
             where: { id },
-            data: { name, nationality, job, location, age: parseInt(age), photos },
+            data,
         });
-        res.json({ message: "User updated and cleaned up!", user });
+        res.json({ message: "User updated!", user });
     } catch (err) {
         console.error(err);
         res.status(500).json({ error: "Failed to update user." });
@@ -289,22 +320,41 @@ app.put("/api/users/:id", async (req, res) => {
 
 
 app.post("/api/posts", async (req, res) => {
+    console.log("Incoming Post Request:", req.body);
     try {
-        const { remarks, photoUrl, userId } = req.body;
-        if (!remarks || !userId) {
-            return res.status(400).json({ error: "Remarks and userId are required." });
+        const { type, title, name, nationality, jobProfile, currentLivingIn, age, photos, content } = req.body;
+        const userId = req.session.userId;
+
+        if (!type || !title || title.trim() === '' || !name || !photos || photos.length === 0 || !userId || !age) {
+            return res.status(400).json({ error: "Missing required fields (Type, Title, Name, Photos, Age)." });
         }
-        const userExists = await prisma.user.findUnique({
-            where: { id: parseInt(userId) },
-        });
-        if (!userExists) return res.status(404).json({ error: "User not found." });
+        if (type === 'REDFLAG' && (!content || content.trim() === '')) {
+            return res.status(400).json({ error: "Content is required for Red Flag posts." });
+        }
+
+        const parsedAge = parseInt(age);
+        if (isNaN(parsedAge)) {
+            return res.status(400).json({ error: "Age must be a valid number." });
+        }
+
         const post = await prisma.post.create({
-            data: { remarks, photoUrl: photoUrl || null, userId: parseInt(userId) },
+            data: {
+                type,
+                title,
+                name,
+                nationality: nationality || "N/A",
+                jobProfile: jobProfile || "N/A",
+                currentLivingIn: currentLivingIn || "N/A",
+                age: parsedAge,
+                photos,
+                content: type === 'REDFLAG' ? content : null,
+                userId
+            },
         });
         res.status(201).json({ message: "Post created successfully!", post });
     } catch (err) {
-        console.error(err);
-        res.status(500).json({ error: "Failed to create post." });
+        console.error("Post Creation Error:", err);
+        res.status(500).json({ error: "Failed to create post. System error logged." });
     }
 });
 
@@ -327,12 +377,12 @@ app.delete("/api/posts/:id", async (req, res) => {
         const post = await prisma.post.findUnique({ where: { id } });
         if (!post) return res.status(404).json({ error: "Post not found." });
 
-        if (post.photoUrl) {
-            await deleteFromS3(post.photoUrl);
+        if (post.photos && post.photos.length > 0) {
+            await Promise.all(post.photos.map(photo => deleteFromS3(photo)));
         }
 
         await prisma.post.delete({ where: { id } });
-        res.json({ message: "Post and its S3 image deleted." });
+        res.json({ message: "Post and its S3 images deleted." });
     } catch (err) {
         console.error(err);
         res.status(500).json({ error: "Failed to delete post." });
@@ -342,22 +392,32 @@ app.delete("/api/posts/:id", async (req, res) => {
 app.put("/api/posts/:id", async (req, res) => {
     try {
         const id = parseInt(req.params.id);
-        const { remarks, photoUrl } = req.body;
-        if (!remarks) return res.status(400).json({ error: "Remarks are required." });
+        const { type, title, name, nationality, jobProfile, currentLivingIn, age, photos, content } = req.body;
 
         const existingPost = await prisma.post.findUnique({ where: { id } });
         if (!existingPost) return res.status(404).json({ error: "Post not found." });
 
-        // If photoUrl changed, delete old one
-        if (existingPost.photoUrl && existingPost.photoUrl !== photoUrl) {
-            await deleteFromS3(existingPost.photoUrl);
+        // Identify photos that were removed
+        const removedPhotos = existingPost.photos.filter(p => !photos.includes(p));
+        if (removedPhotos.length > 0) {
+            await Promise.all(removedPhotos.map(p => deleteFromS3(p)));
         }
 
         const post = await prisma.post.update({
             where: { id },
-            data: { remarks, photoUrl: photoUrl || null },
+            data: {
+                type,
+                title,
+                name,
+                nationality,
+                jobProfile,
+                currentLivingIn,
+                age: parseInt(age),
+                photos,
+                content: type === 'REDFLAG' ? content : null
+            },
         });
-        res.json({ message: "Post updated and cleaned up!", post });
+        res.json({ message: "Post updated!", post });
     } catch (err) {
         console.error(err);
         res.status(500).json({ error: "Failed to update post." });
