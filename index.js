@@ -10,6 +10,9 @@ const bcrypt = require("bcrypt");
 
 const app = express();
 
+// Trust proxy for secure cookies on Render/Vercel
+app.set("trust proxy", true);
+
 const s3Client = new S3Client({
     region: process.env.AWS_REGION,
     credentials: {
@@ -20,10 +23,30 @@ const s3Client = new S3Client({
 const prisma = new PrismaClient();
 const PORT = process.env.PORT || 3000;
 
+const allowedOrigins = [
+    "https://redflagcheck.vercel.app",
+    "http://localhost:5173",
+    "http://localhost:3000"
+];
+
 app.use(cors({
-    origin: "https://redflagcheck.vercel.app",
+    origin: function (origin, callback) {
+        if (!origin || allowedOrigins.indexOf(origin) !== -1 || origin.endsWith(".vercel.app")) {
+            callback(null, true);
+        } else {
+            callback(new Error("Not allowed by CORS"));
+        }
+    },
     credentials: true
 }));
+
+app.use((req, res, next) => {
+    console.log(`[${new Date().toISOString()}] ${req.method} ${req.url}`);
+    console.log("Headers Origin:", req.headers.origin);
+    console.log("Cookies received:", req.headers.cookie ? "Present" : "None");
+    next();
+});
+
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(
@@ -31,7 +54,12 @@ app.use(
         secret: process.env.SESSION_SECRET || "fallback_secret",
         resave: false,
         saveUninitialized: false,
-        cookie: { maxAge: 8 * 60 * 60 * 1000 },
+        proxy: true, // Trust the proxy for cookie transmission
+        cookie: { 
+            maxAge: 8 * 60 * 60 * 1000,
+            secure: true,      // Must be true for sameSite: 'none'
+            sameSite: 'none',  // Required for cross-origin (Vercel -> Render)
+        },
     })
 );
 
@@ -121,7 +149,15 @@ app.post("/login", async (req, res) => {
         req.session.authenticated = true;
         req.session.userId = user.id;
         req.session.userEmail = user.email;
-        res.json({ message: "Login successful", user: { email: user.email, id: user.id } });
+
+        // Explicitly save session before responding
+        req.session.save((err) => {
+            if (err) {
+                console.error("Session save error:", err);
+                return res.status(500).json({ error: "Session save failed" });
+            }
+            res.json({ message: "Login successful", user: { email: user.email, id: user.id } });
+        });
     } catch (err) {
         console.error(err);
         res.status(500).json({ error: "Internal server error" });

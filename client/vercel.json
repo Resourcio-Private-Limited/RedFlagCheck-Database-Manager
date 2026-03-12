@@ -1,0 +1,20 @@
+{
+  "rewrites": [
+    {
+      "source": "/api/:path*",
+      "destination": "https://redflagcheck-database-manager.onrender.com/api/:path*"
+    },
+    {
+      "source": "/login",
+      "destination": "https://redflagcheck-database-manager.onrender.com/login"
+    },
+    {
+      "source": "/logout",
+      "destination": "https://redflagcheck-database-manager.onrender.com/logout"
+    },
+    {
+      "source": "/register",
+      "destination": "https://redflagcheck-database-manager.onrender.com/register"
+    }
+  ]
+}
