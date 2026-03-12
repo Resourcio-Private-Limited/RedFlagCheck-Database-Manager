@@ -21,7 +21,7 @@ const prisma = new PrismaClient();
 const PORT = process.env.PORT || 3000;
 
 app.use(cors({
-    origin: "http://localhost:5173",
+    origin: "https://redflagcheck.vercel.app",
     credentials: true
 }));
 app.use(express.json());
