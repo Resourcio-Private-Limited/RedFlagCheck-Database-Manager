@@ -10,6 +10,9 @@ const bcrypt = require("bcrypt");
 
 const app = express();
 
+// Trust proxy for secure cookies on Render/Vercel
+app.set("trust proxy", 1);
+
 const s3Client = new S3Client({
     region: process.env.AWS_REGION,
     credentials: {
@@ -31,7 +34,12 @@ app.use(
         secret: process.env.SESSION_SECRET || "fallback_secret",
         resave: false,
         saveUninitialized: false,
-        cookie: { maxAge: 8 * 60 * 60 * 1000 },
+        proxy: true, // Trust the proxy for cookie transmission
+        cookie: { 
+            maxAge: 8 * 60 * 60 * 1000,
+            secure: true,      // Must be true for sameSite: 'none'
+            sameSite: 'none',  // Required for cross-origin (Vercel -> Render)
+        },
     })
 );
 
